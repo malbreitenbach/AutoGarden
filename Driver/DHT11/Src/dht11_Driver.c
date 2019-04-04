@@ -1,0 +1,221 @@
+/*
+ * dht11_Driver.c
+ *
+ *  Created on: 16.10.2018
+ *      Author: Malte
+ */
+
+#include "dht11_Driver.h"
+
+uint8_t checkResponse();
+
+void delay_u(uint32_t delay)
+{
+	timer->CNT = 0; //Reset Counter
+	if(delay < (1<<16))
+	{
+		while(timer->CNT < delay);
+	}
+}
+
+void startWatch()
+{
+	timer->CNT = 0; //Reset Counter
+}
+
+uint16_t readWatch()
+{
+	return timer->CNT;
+}
+
+/**
+ * tim = TIM1
+ */
+void dht11_ini(GPIO_TypeDef *gpio_port, uint16_t gpio_pin, TIM_TypeDef *tim, TIM_TypeDef * TIMX)
+{
+	/* GPIO CONFIGURATION */
+	port = gpio_port;
+	pin = gpio_pin;
+
+	GPIO_InitTypeDef GPIO_InitStruct;
+
+	/*Configure GPIO pin Output Level */
+	HAL_GPIO_WritePin(gpio_port, gpio_pin, GPIO_PIN_SET);
+
+	/*Configure GPIO pin */
+	GPIO_InitStruct.Pin = gpio_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(gpio_port, &GPIO_InitStruct);
+
+	/* TIMER CONFIGURATION */
+	timer = tim;
+
+	TIM_ClockConfigTypeDef sClockSourceConfig;
+	TIM_MasterConfigTypeDef sMasterConfig;
+
+	htim1.Instance = TIMX;
+	htim1.Init.Prescaler = 7; //Adjust to Busclock
+	htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim1.Init.Period = 0xFFFF;
+	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim1.Init.RepetitionCounter = 0;
+	htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+	if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	//Enable
+	tim->CR1 |= TIM_CR1_CEN;
+
+}
+
+DHT11_RESULT dht11_read(uint8_t *temp, uint8_t *humidity)
+{
+	//Send Start Signal (Pull to GND for 18ms)
+	GPIO_InitTypeDef GPIO_InitStruct;
+	GPIO_InitStruct.Pin = pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(port, &GPIO_InitStruct); //Now configured as Output
+
+	HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET); //Pull to LOW
+	HAL_Delay(20);
+	HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET); //Pull to HIGH
+
+	//Check Response
+	volatile RESPONSE res;
+	if((res = checkResponse()) != RESPONSE_CORRECT)
+	{
+		return DHT11_RESULT_ERROR;
+	}
+
+	volatile uint64_t message = 0;
+	volatile uint32_t timeout;
+	uint16_t puls_len = 0;
+	for(uint8_t bitCnt = 0; bitCnt < 39; bitCnt++)
+	{
+		timeout = 0;
+		while((HAL_GPIO_ReadPin(port, pin) == 0) && (timeout++ < TIMEOUT));
+		startWatch(); //Start Watch while rising Edge
+		if(timeout >= TIMEOUT)
+		{
+			return DHT11_RESULT_TIMEOUT;
+		}
+		timeout = 0;
+		while((HAL_GPIO_ReadPin(port, pin) == 1) && (timeout++ < TIMEOUT));
+		puls_len = readWatch(); //Stop Watch while falling Edge
+		if(timeout >= TIMEOUT)
+		{
+			return DHT11_RESULT_TIMEOUT;
+		}
+
+		if(puls_len < 45) 	//Short Pulse
+		{
+			message = (message << 1) + 0;
+		} else			//Long Pulse
+		{
+			message = (message << 1) + 1;
+		}
+
+	}
+
+	//Message should now be stored in 'message'
+	//Interpret message
+	volatile uint8_t humidity_H = (message>>32) & 0xFF;
+	volatile uint8_t humidity_L = (message>>24) & 0xFF;
+	volatile uint8_t temp_H = (message>>16) & 0xFF;
+	volatile uint8_t temp_L = (message>>8) & 0xFF;
+	volatile uint8_t parity = message & 0xFF;
+
+	//Calculate Decimal
+	uint8_t decimal;
+	if(humidity_L && temp_L)
+		decimal = 1;
+	else
+		decimal = 0;
+
+
+	if(humidity_H + temp_H + decimal == parity)
+	{
+		*temp = (temp_H<<1) + (temp_L>>7);
+		*humidity = (humidity_H<<1) + (humidity_L>>7);
+		return DHT11_RESULT_CORRECT; // Parity Bit is correct
+	}
+		return DHT11_RESULT_ERROR;
+
+
+
+
+
+
+
+
+}
+
+uint8_t checkResponse()
+{
+	//Configure Pin as Input
+	GPIO_InitTypeDef GPIO_InitStruct;
+	GPIO_InitStruct.Pin = pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	HAL_GPIO_Init(port, &GPIO_InitStruct); //Now configured as Input
+	uint32_t timeOut = 0;
+	while((HAL_GPIO_ReadPin(port, pin) == 1) && (timeOut++ < TIMEOUT));
+	if(timeOut >= TIMEOUT)
+	{
+		//ERROR: No Answer
+		return RESPONSE_NO_ACTION;
+	}
+
+	//Pin is now Pulled LOW
+	startWatch();
+	timeOut = 0;
+	while((HAL_GPIO_ReadPin(port, pin) == 0) && (timeOut++ < TIMEOUT));
+	if(timeOut >= TIMEOUT || readWatch() < 80-TOLLERANCE || readWatch() > 80+TOLLERANCE)
+	{
+		//ERROR: Wrong Answer
+		return RESPONSE_WRONG_ANSWER;
+	}
+	//Pin is now Pulled HIGH
+	startWatch();
+	//Wait for LOW
+	timeOut = 0;
+	while((HAL_GPIO_ReadPin(port, pin) == 1) && (timeOut++ < TIMEOUT));
+	if(timeOut >= TIMEOUT || readWatch() < 80-TOLLERANCE || readWatch() > 80+TOLLERANCE)
+	{
+		//ERROR: Wrong Answer
+		return RESPONSE_WRONG_ANSWER;
+	}
+	//Pin is now Pulled LOW
+	return RESPONSE_CORRECT; //Answer is correct!
+}
+
+DHT11_RESULT dht11_measure(uint8_t *temp, uint8_t *humidity)
+{
+	uint8_t attempts = 0;
+
+	while(dht11_read(temp, humidity))
+	{
+		if(attempts++ > 5)
+			return DHT11_RESULT_ERROR;
+		HAL_Delay(2000);
+	}
+	return DHT11_RESULT_CORRECT;
+}
