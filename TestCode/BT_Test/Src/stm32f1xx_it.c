@@ -81,6 +81,11 @@ void EXTI15_10_IRQHandler(void)
   /* USER CODE END EXTI15_10_IRQn 1 */
 }
 
+void DMA1_Channel4_IRQHandler(void)
+{
+
+}
+
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */

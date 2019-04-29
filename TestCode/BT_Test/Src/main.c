@@ -50,6 +50,8 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+uint8_t p_recBuffer[8] = {0};
+uint8_t p_transBuffer[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'f'};
 
 /* USER CODE END PV */
 
@@ -92,6 +94,7 @@ int main(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_ADC1_CLK_ENABLE();
   __HAL_RCC_USART1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -99,7 +102,7 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  char msg[20];
+  char msg[40];
 
   //Ini USART
 
@@ -135,23 +138,34 @@ int main(void)
     GPIO_InitStruct.Mode = GPIO_MODE_AF_INPUT;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+    USART1->CR3 |= USART_CR3_DMAT;
 
-    //Enable
-  USART1->CR1 |= USART_CR1_UE;
 
 
   //DMA
   //DMA1_C4 -> USART1_TX
   //DMA1_C5 -> USART1_RX
-  DMA1_Channel4->CPAR = &(USART1->DR);
-  DMA1_Channel5->CPAR = &(USART1->DR);
+  DMA1_Channel4->CPAR = &(USART1->DR); //Peripheral Address TX
+  //DMA1_Channel5->CPAR = &(USART1->DR); //Peripheral Address RX
+
+  DMA1_Channel4->CMAR = p_transBuffer; //Memory Address to store Data to be transmitted
+  //DMA1_Channel5->CMAR = p_recBuffer; //Memory Address to store received Data
+
+  DMA1_Channel4->CNDTR = 8; //8 transfers per Iteration
+  //DMA1_Channel5->CNDTR = 8; //8 transfers per Iteration
+
+  DMA1_Channel4->CCR 	=  (0 << DMA_CCR_PL_Pos) | DMA_CCR_MINC | DMA_CCR_DIR | DMA_CCR_TCIE; //no Prio, MSIZE = 8b, PSIZE= 8b, MemInc, noCirc, ReadFromMem, TransferCompleteInterruptEnable
+  //DMA1_Channel5->CCR 	=  (3 << DMA_CCR_PL_Pos) | DMA_CCR_DIR | DMA_CCR_TCIE; //high Prio, MSIZE = 8b, PSIZE= 8b, MemInc, noCirc, ReadFromPer, TransferCompleteInterruptEnable
+
+  USART1->SR &= ~(USART_SR_TC);
+  DMA1_Channel4->CCR |= DMA_CCR_EN; //Channel enable
+  //DMA1_Channel5->CCR |= DMA_CCR_EN; //Channel enable
+
+  //Enable USART
+USART1->CR1 |= USART_CR1_UE;
 
 
-
- uint8_t rec = 42;
- volatile HAL_StatusTypeDef a;
-uint32_t dummy;
-
+ uint8_t rec[] = {0,0};
 
   /* USER CODE END 2 */
 
@@ -165,10 +179,9 @@ uint32_t dummy;
   /* USER CODE BEGIN 3 */
 
 	  //Sende Byte per USART 1
-	  HAL_UART_Receive(&huart1, &rec, 1, 0xF);
-	  sprintf(msg, "Receive = %d \r\n", rec);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 0xFFFF);
-	  a = HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg),0xFFFF);
+	  //HAL_UART_Receive(&huart1, &rec, 2, 0xFFFF);
+	  //HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 0xFFFF);
+	  //HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg),0xFFFF);
 
   }
   /* USER CODE END 3 */
