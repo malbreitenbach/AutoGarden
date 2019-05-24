@@ -1,0 +1,27 @@
+/*
+ * sensory.c
+ *
+ *  Created on: 23.05.2019
+ *      Author: Malte
+ */
+
+#include "sensory.h"
+
+void sen_temperatureIni()
+{
+
+}
+
+void sen_lightIni();
+
+uint8_t sen_getLight();
+uint8_t sen_getTemperature();
+
+void sen_startLightMeasure();
+void sen_startTemperatureMeasure();
+
+bool sen_temperatureMeasureReady();
+bool sen_lightMeasureReady();
+
+uint8_t sen_getTemperatureMeasure();
+uint8_t sen_getLightMeasure();

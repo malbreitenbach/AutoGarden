@@ -1,0 +1,59 @@
+/*
+ * protocol_bt.c
+ *
+ *  Created on: 07.05.2019
+ *      Author: Malte
+ */
+
+#include "protocol_bt.h"
+
+void messageHandler()
+{
+	if(newMessageIsAvailable())
+	{
+		//Execute Reaction
+		switch(currentMessage.PDU_fromSmart_s.command)
+		{
+			case COMMAND_MANUAL_CONTROL:
+
+				break;
+			case COMMAND_READ_SENSORY:
+
+				break;
+		}
+
+		messageAvailable = false;
+	}
+
+}
+
+void transmitReply(PDU *msg)
+{
+	sendPDU(msg);
+}
+
+void newMessage(PDU_fromSmart *msg)
+{
+	messageAvailable = true;
+	currentMessage = *msg;
+}
+
+void bool newMessageIsAvailable()
+{
+	return messageAvailable;
+}
+
+uint8_t getRecMessageType()
+{
+	return currentMessage.PDU_fromSmart_s.command;
+}
+
+PDU_fromSmart* getRecMessage()
+{
+	messageAvailable = false;
+	return &currentMessage;
+}
+
+
+
+

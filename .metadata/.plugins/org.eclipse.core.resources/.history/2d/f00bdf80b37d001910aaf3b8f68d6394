@@ -1,0 +1,138 @@
+/*
+ * pump_Driver.c
+ *
+ *  Created on: 17.10.2018
+ *      Author: Malte
+ */
+
+#include "pump_Driver.h"
+
+
+/**
+ * Initialize Timer periphery for PWM Output
+ * @param tim Timer Peripheral (TIM2)
+ * @param cha Channel for Output (TIM_CHANNEL_1)
+ */
+void pumpIni(TIM_TypeDef *tim, uint32_t cha)
+{
+
+	TIM_ClockConfigTypeDef sClockSourceConfig;
+	TIM_MasterConfigTypeDef sMasterConfig;
+	TIM_OC_InitTypeDef sConfigOC;
+	TIM_HandleTypeDef htim2;
+
+	htim2.Instance = TIM2;
+	htim2.Init.Prescaler = 0;
+	htim2.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED3;
+	htim2.Init.Period = 0xFFFF;
+	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+	if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	sConfigOC.OCMode = TIM_OCMODE_PWM2;
+	sConfigOC.Pulse = 0;
+	sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+	sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+	if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, cha) != HAL_OK)
+	{
+	_Error_Handler(__FILE__, __LINE__);
+	}
+
+	GPIO_InitTypeDef GPIO_InitStruct;
+	GPIO_InitStruct.Pin = GPIO_PIN_0;
+	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    __HAL_RCC_TIM2_CLK_ENABLE();
+
+    //
+    //CompareEnable
+    TIM2->CCER |= TIM_CCER_CC1E;
+	//Output Enable
+    TIM2->BDTR |= TIM_BDTR_MOE;
+
+    pumpState = PUMP_STATE_STOP;
+
+
+
+}
+
+PUMP_RESULT pumpStart()
+{
+	if(pumpState == PUMP_STATE_STOP)
+	{
+		pumpSet(0);
+		//Timer Enable
+		pumpIni(TIM2, TIM_CHANNEL_1);
+		//Output Enable
+		TIM2->BDTR |= TIM_BDTR_MOE;
+		TIM2->CR1 |= TIM_CR1_CEN;
+		pumpState = PUMP_STATE_RUNNING;
+		return PUMP_RESULT_OK;
+	}
+	else
+	{
+		return PUMP_RESULT_ERROR;
+	}
+}
+
+PUMP_RESULT pumpStop()
+{
+	if(pumpState == PUMP_STATE_RUNNING)
+	{
+		//Timer Disable
+		pumpSet(0);
+		//Output Enable
+		TIM2->BDTR &= ~(TIM_BDTR_MOE);
+		TIM2->CR1 &= ~(TIM_CR1_CEN);
+		pumpState = PUMP_STATE_STOP;
+		return PUMP_RESULT_OK;
+	}
+	else
+	{
+		return PUMP_RESULT_ERROR;
+	}
+}
+
+PUMP_STATE pumpGetState()
+{
+	return pumpState;
+}
+
+/**
+ * @param per Percentage of PumpPower (0...100)
+ */
+PUMP_RESULT pumpSet(uint8_t per)
+{
+	if(per >= 0 && per <= 100)
+	{
+		//Calculate CCR1 - Value depending on per
+		TIM2->CCR1 = (per * 0x028F); // 0xFFFF/100 = 0x028F
+		return PUMP_RESULT_OK;
+	}else
+		return PUMP_RESULT_ERROR;
+
+}
+
