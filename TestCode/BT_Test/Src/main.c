@@ -41,6 +41,11 @@
 #include "stm32f1xx_hal.h"
 #include "usart.h"
 #include "gpio.h"
+#include "BT_Serial.h"
+#include "protocol_bt.h"
+#include "dht11_Driver.h"
+#include "sensory.h"
+#include "pump_Driver.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -50,8 +55,6 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-uint8_t p_recBuffer[8] = {0};
-uint8_t p_transBuffer[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'f'};
 
 /* USER CODE END PV */
 
@@ -60,7 +63,8 @@ void SystemClock_Config(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-
+void initialActionPerform(COMFROMSMART sX_rType, PDU_fromSmart *sX_rMessage, PDU *sX_tMessage);
+bool messageActionPerform(COMFROMSMART sX_rType, PDU_fromSmart *sX_rMessage, PDU *sX_tMessage);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -91,10 +95,11 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
+  //__HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_ADC1_CLK_ENABLE();
   __HAL_RCC_USART1_CLK_ENABLE();
   __HAL_RCC_DMA1_CLK_ENABLE();
+  __HAL_RCC_TIM1_CLK_ENABLE();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -102,75 +107,25 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  char msg[40];
-
-  //Ini USART
-
-  UART_HandleTypeDef huart1;
-
-
-  /* USART1 init function */
-
-	  huart1.Instance = USART1;
-	  huart1.Init.BaudRate = 9600;
-	  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-	  huart1.Init.StopBits = UART_STOPBITS_1;
-	  huart1.Init.Parity = UART_PARITY_NONE;
-	  huart1.Init.Mode = UART_MODE_TX_RX;
-	  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-    if (HAL_UART_Init(&huart1) != HAL_OK)
-    {
-      _Error_Handler(__FILE__, __LINE__);
-    }
-
-    //Pin Config
-    GPIO_InitTypeDef GPIO_InitStruct;
-
-    /* PA9 = alternate function push/pull output */
-    GPIO_InitStruct.Pin = GPIO_PIN_9;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-        /* PA10 = floating input */
-    GPIO_InitStruct.Pin = GPIO_PIN_10;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_INPUT;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    USART1->CR3 |= USART_CR3_DMAT;
+  iniBT_Serial();
+  //dht11_ini(GPIOA, GPIO_PIN_0, TIM1);
+  //dht11_read(&temp, &lfeu);
+  sen_lightIni();
+  pumpIni(TIM2, TIM_CHANNEL_1);
 
 
-
-  //DMA
-  //DMA1_C4 -> USART1_TX
-  //DMA1_C5 -> USART1_RX
-  DMA1_Channel4->CPAR = &(USART1->DR); //Peripheral Address TX
-  //DMA1_Channel5->CPAR = &(USART1->DR); //Peripheral Address RX
-
-  DMA1_Channel4->CMAR = p_transBuffer; //Memory Address to store Data to be transmitted
-  //DMA1_Channel5->CMAR = p_recBuffer; //Memory Address to store received Data
-
-  DMA1_Channel4->CNDTR = 8; //8 transfers per Iteration
-  //DMA1_Channel5->CNDTR = 8; //8 transfers per Iteration
-
-  DMA1_Channel4->CCR 	=  (0 << DMA_CCR_PL_Pos) | DMA_CCR_MINC | DMA_CCR_DIR | DMA_CCR_TCIE; //no Prio, MSIZE = 8b, PSIZE= 8b, MemInc, noCirc, ReadFromMem, TransferCompleteInterruptEnable
-  //DMA1_Channel5->CCR 	=  (3 << DMA_CCR_PL_Pos) | DMA_CCR_DIR | DMA_CCR_TCIE; //high Prio, MSIZE = 8b, PSIZE= 8b, MemInc, noCirc, ReadFromPer, TransferCompleteInterruptEnable
-
-  USART1->SR &= ~(USART_SR_TC);
-  DMA1_Channel4->CCR |= DMA_CCR_EN; //Channel enable
-  //DMA1_Channel5->CCR |= DMA_CCR_EN; //Channel enable
-
-  //Enable USART
-USART1->CR1 |= USART_CR1_UE;
-
-
- uint8_t rec[] = {0,0};
+  PDU sX_tMessage;
+  PDU_fromSmart sX_rMessage;
+  COMFROMSMART sX_rType;
+  //computeChecksum(&nextMessage);
+  uint8_t state = 5;
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint32_t timeout = 0;
+
   while (1)
   {
 
@@ -178,16 +133,198 @@ USART1->CR1 |= USART_CR1_UE;
 
   /* USER CODE BEGIN 3 */
 
+
+	  switch(state)
+	  {
+	  case 0:
+		  break;
+	  case 5: /* - Waiting for new Message - */
+		  if(newMessageIsAvailable())
+		  {
+			  sX_rMessage = *getRecMessage();
+			  sX_rType = getRecMessageType();
+
+			  initialActionPerform(sX_rType, &sX_rMessage, &sX_tMessage);
+			  state = 6;
+		  }
+		  break;
+	  case 6: /* - Performing Message - */
+		  if(messageActionPerform(sX_rType, &sX_rMessage, &sX_tMessage))
+		  {
+			  //Message replied
+			  transmitReply(&sX_tMessage);
+			  state = 5;
+		  }
+		  if(timeout++ > 1000000)
+		  {
+			  //Message Failed
+			  timeout = 0;
+  			  state = 5;
+		  }
+		  break;
+	  }
+  }
+
 	  //Sende Byte per USART 1
 	  //HAL_UART_Receive(&huart1, &rec, 2, 0xFFFF);
 	  //HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 0xFFFF);
 	  //HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg),0xFFFF);
 
-  }
+
   /* USER CODE END 3 */
 
 }
 
+void initialActionPerform(COMFROMSMART sX_rType, PDU_fromSmart *sX_rMessage, PDU *sX_tMessage)
+{
+	switch(sX_rType) //Initial Action
+	{
+	case COMFROMSMART_MANUAL_CONTROL:
+		//COMREC_MAN_REPLY is required
+		sX_tMessage->PDU_s.startbyte = STARTBYTE_COMMAND;
+		sX_tMessage->PDU_s.command = COMREC_MAN_REPLY;
+
+		//Start Pump adjustment here
+		if(sX_rMessage->PDU_fromSmart_s.value2 == 1 && pumpGetState() == PUMP_STATE_STOP)
+		{
+			pumpStart();
+		}else if(sX_rMessage->PDU_fromSmart_s.value2 == 0 && pumpGetState() == PUMP_STATE_RUNNING)
+		{
+			pumpStop();
+		}
+
+
+		break;
+	case COMFROMSMART_READ_SENSORY:
+		//Data Reply is required
+		sX_tMessage->PDU_s.startbyte = STARTBYTE_DATA;
+
+		//Add timestemp
+		sX_tMessage->PDU_s.command = 1;
+		sX_tMessage->PDU_s.value2 = 2;
+		sX_tMessage->PDU_s.value3 = 3;
+		sX_tMessage->PDU_s.value4 = 4;
+
+		sX_tMessage->PDU_s.value5 = 0x00;
+		sX_tMessage->PDU_s.value6 = 0x00;
+		sX_tMessage->PDU_s.value7 = 0x00;
+		sX_tMessage->PDU_s.value8 = 0x00;
+		sX_tMessage->PDU_s.value9 = 0x00;
+
+		if(sX_rMessage->PDU_fromSmart_s.value2 == 0x01)
+		{
+		  //Read light
+			sen_startLightMeasure();
+
+		}
+		if(sX_rMessage->PDU_fromSmart_s.value3 == 0x01)
+		{
+		  //Read bat
+
+		}
+		if(sX_rMessage->PDU_fromSmart_s.value4 == 0x01)
+		{
+			//dht11_read(&temp, &lfeu);
+		}
+		if(sX_rMessage->PDU_fromSmart_s.value5 == 0x01)
+		{
+		  //Read efeu
+
+		}
+		if(sX_rMessage->PDU_fromSmart_s.value6 == 0x01)
+		{
+		  //see value04
+
+		}
+		break;
+	case COMFROMSMART_AVAILABILITY_REQUEST:
+		//Data Reply is required
+		sX_tMessage->PDU_s.startbyte = STARTBYTE_COMMAND;
+
+		//Add timestemp
+		sX_tMessage->PDU_s.command = COMREC_AVAILIBILITY;
+		sX_tMessage->PDU_s.value2 = 0x11;
+		sX_tMessage->PDU_s.value3 = 0;
+		sX_tMessage->PDU_s.value4 = 0;
+		sX_tMessage->PDU_s.value5 = 0x00;
+		sX_tMessage->PDU_s.value6 = 0x00;
+		sX_tMessage->PDU_s.value7 = 0x00;
+		sX_tMessage->PDU_s.value8 = 0x00;
+		sX_tMessage->PDU_s.value9 = 0x00;
+		break;
+	default:
+		break;
+	}
+}
+
+bool messageActionPerform(COMFROMSMART sX_rType, PDU_fromSmart *sX_rMessage, PDU *sX_tMessage)
+{
+	switch(sX_rType) //Initial Action
+		{
+		case COMFROMSMART_MANUAL_CONTROL:
+
+			//FakePump Adjustment
+			sX_tMessage->PDU_s.value2 = pumpGetState() == PUMP_STATE_RUNNING;
+			sX_tMessage->PDU_s.value3 = sX_rMessage->PDU_fromSmart_s.value3;
+			sX_tMessage->PDU_s.value4 = 0x00;
+			sX_tMessage->PDU_s.value5 = 0x00;
+			sX_tMessage->PDU_s.value6 = 0x00;
+			sX_tMessage->PDU_s.value7 = 0x00;
+			sX_tMessage->PDU_s.value8 = 0x00;
+			sX_tMessage->PDU_s.value9 = 0x00;
+
+			pumpSet(sX_rMessage->PDU_fromSmart_s.value3);
+
+			break;
+		case COMFROMSMART_READ_SENSORY:
+			if(sen_temperatureMeasureReady())
+			{
+				sX_tMessage->PDU_s.value6 = sen_getTemperatureMeasure();
+				sX_tMessage->PDU_s.value5 = sen_getLightMeasure();
+				return true;
+			}else
+			{
+				return false;
+			}
+
+
+			/*
+			if(sX_rMessage->PDU_fromSmart_s.value2 == 0x01 && sX_tMessage->PDU_s.value5 == 0x00)
+			{
+			  //Read light
+				//sX_tMessage->PDU_s.value5 = sen_getLightMeasure();
+			}
+			if(sX_rMessage->PDU_fromSmart_s.value3 == 0x01 && sX_tMessage->PDU_s.value5 == 0x00)
+			{
+			  //Read bat
+				sX_tMessage->PDU_s.value5 = 0x05;
+			}
+			if(sX_rMessage->PDU_fromSmart_s.value4 == 0x01 && sX_tMessage->PDU_s.value6 == 0x00)
+			{
+			  //Read temperature
+				if(sen_temperatureMeasureReady())
+					sX_tMessage->PDU_s.value6 = sen_getTemperatureMeasure();
+			}
+			if(sX_rMessage->PDU_fromSmart_s.value5 == 0x01 && sX_tMessage->PDU_s.value7 == 0x00)
+			{
+			  //Read efeu
+				sX_tMessage->PDU_s.value7 = 7;
+			}
+			if(sX_rMessage->PDU_fromSmart_s.value6 == 0x01 && sX_tMessage->PDU_s.value8 == 0x00)
+			{
+			  //Read lfeu
+				sX_tMessage->PDU_s.value8 = lfeu;
+			}
+			break;
+			*/
+		case COMFROMSMART_AVAILABILITY_REQUEST:
+			//Nothing to do
+			break;
+		default:
+			break;
+		}
+	return true;
+}
 /**
   * @brief System Clock Configuration
   * @retval None

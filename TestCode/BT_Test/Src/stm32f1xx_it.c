@@ -34,12 +34,15 @@
 #include "stm32f1xx_hal.h"
 #include "stm32f1xx.h"
 #include "stm32f1xx_it.h"
+#include "BT_Serial.h"
 
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern DMA_HandleTypeDef hdma_adc1;
+extern ADC_HandleTypeDef hadc1;
 
 /******************************************************************************/
 /*            Cortex-M3 Processor Interruption and Exception Handlers         */ 
@@ -56,7 +59,7 @@ void SysTick_Handler(void)
   HAL_IncTick();
   HAL_SYSTICK_IRQHandler();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-
+  bt_timeout();
   /* USER CODE END SysTick_IRQn 1 */
 }
 
@@ -83,7 +86,48 @@ void EXTI15_10_IRQHandler(void)
 
 void DMA1_Channel4_IRQHandler(void)
 {
+	DMA1->IFCR |= DMA_IFCR_CTCIF4 | DMA_IFCR_CGIF4;
+	NVIC_ClearPendingIRQ(DMA1_Channel4_IRQn);
+	transferInProgress_BTS = false;
+}
 
+/**
+ * Called while receive Buffer is full
+ */
+void DMA1_Channel5_IRQHandler(void)
+{
+	DMA1->IFCR |= DMA_IFCR_CTCIF5 | DMA_IFCR_CGIF5;
+	NVIC_ClearPendingIRQ(DMA1_Channel5_IRQn);
+	computePDU();
+}
+
+/**
+* @brief This function handles DMA1 channel1 global interrupt.
+*/
+void DMA1_Channel1_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel1_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_adc1);
+
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel1_IRQn 1 */
+}
+
+/**
+* @brief This function handles ADC1 and ADC2 global interrupts.
+*/
+void ADC1_2_IRQHandler(void)
+{
+  /* USER CODE BEGIN ADC1_2_IRQn 0 */
+
+  /* USER CODE END ADC1_2_IRQn 0 */
+  HAL_ADC_IRQHandler(&hadc1);
+  /* USER CODE BEGIN ADC1_2_IRQn 1 */
+
+  /* USER CODE END ADC1_2_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
