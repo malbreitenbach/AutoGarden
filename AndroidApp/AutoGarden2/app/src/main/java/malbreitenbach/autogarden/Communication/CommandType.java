@@ -1,0 +1,16 @@
+package malbreitenbach.autogarden.Communication;
+
+/**
+ * Created by Malte on 03.05.2019.
+ */
+
+public enum CommandType {
+    COMMAND_MANUAL_CONTROL,
+    COMMAND_READ_SENSORY,
+    COMMAND_UPDATE_TIME,
+    COMMAND_DATA_REQUEST,
+    COMMAND_RESYNC,
+    COMMAND_AVAILABILITY_REQUEST,
+    COMMAND_REQUEST_DATA_INFO,
+    COMMAND_CHECK_DATA_AVAILABILITY
+}
